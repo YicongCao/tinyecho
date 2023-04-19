@@ -10,3 +10,6 @@ export:
 
 debug:
 	docker run -it --rm --name "hello_instance" -p 8081:8080 $(img_name):$(img_ver)
+
+push:
+	docker push $(img_name):$(img_ver)
