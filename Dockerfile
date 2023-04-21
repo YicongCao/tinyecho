@@ -1,46 +1,24 @@
-###########################
-# STEP 1 编译源代码
-############################
-FROM golang:alpine as builder
+# Use the offical Golang image to create a build artifact.
+# This is based on Debian and sets the GOPATH to /go.
+# https://hub.docker.com/_/golang
+FROM registry.cn-hangzhou.aliyuncs.com/knative-sample/golang:1.12 as builder
 
-RUN apk update && apk add --no-cache git ca-certificates tzdata && update-ca-certificates && apk add tree
-
-RUN adduser -D -g '' appuser
-
-WORKDIR /app
-
-# 先拷贝 go.mod 安装依赖项
-# 这样改变源代码时，重新构建镜像，就不用重复拉取依赖项了(use cache)
-COPY ./go.mod ./go.mod
-RUN go mod download
-
-# 再拷贝源代码
+# Copy local code to the container image.
+WORKDIR /src
 COPY . .
-RUN pwd && tree .
 
-# 编译（尽量干掉 GOPATH）
-# ENV GOPATH="$(pwd):$GOPATH"
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -a -installsuffix cgo -o /go/bin/tinyecho main.go
+# Build the command inside the container.
+# (You may fetch or manage dependencies here,
+# either manually or with a tool like "godep".)
+RUN CGO_ENABLED=0 GOOS=linux go build -v -o app
 
-############################
-# STEP 2 构建执行镜像
-############################
-FROM scratch
+# Use a Docker multi-stage build to create a lean production image.
+# https://docs.docker.com/develop/develop-images/multistage-build/#use-multi-stage-builds
+FROM registry.cn-hangzhou.aliyuncs.com/knative-sample/alpine-sh:3.9
+# RUN apk add --no-cache ca-certificates
 
-# 导入 HTTPS 证书等
-COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=builder /etc/passwd /etc/passwd
+# Copy the binary to the production image from the builder stage.
+COPY --from=builder /src/app /app
 
-# 拷贝二进制
-WORKDIR /app
-COPY --from=builder /go/bin/tinyecho /go/bin/tinyecho
-
-# 使用普通账户权限，不使用 root
-USER appuser
-
-# 服务端口
-ENV PORT=8080
-
-# 默认运行
-ENTRYPOINT ["/go/bin/tinyecho"]
+# Run the web service on container startup.
+CMD ["/app"]
